@@ -1,0 +1,20 @@
+[project]
+name = "lexia-local"
+version = "0.1.0"
+description = "MVP de triagem jurídica documental com Ollama local e relatório auditável."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "python-multipart>=0.0.12,<1.0",
+  "httpx>=0.27,<1.0",
+  "pydantic>=2.8,<3.0",
+  "PyMuPDF>=1.24,<2.0",
+  "python-docx>=1.1,<2.0",
+  "pytesseract>=0.3.10,<1.0",
+  "Pillow>=10.0,<13.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]

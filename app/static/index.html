@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LexIA · Análise Jurídica Local</title>
+  <link href="/static/style.css" rel="stylesheet">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-icon">§</span><span>Lex<span class="accent">IA</span><small>LOCAL</small></span></div>
+    <div class="tag"><span class="indicator"></span>Processamento em ambiente local</div>
+  </header>
+  <main>
+    <section class="hero">
+      <div class="eyebrow">INTELIGÊNCIA DOCUMENTAL PARA ADVOCACIA</div>
+      <h1>Leia menos páginas.<br><em>Encontre mais evidências.</em></h1>
+      <p>Transforme processos e documentos em um relatório jurídico estruturado, com citações literais, localização das fontes e alertas de inconsistências.</p>
+    </section>
+    <section class="layout">
+      <div class="panel">
+        <div class="section-title"><div><span class="count">01</span><h2>Envie os autos</h2></div><span class="muted">PDF · DOCX · TXT · MD</span></div>
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Selecionar documentos">
+          <svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 16V3m0 0L7 8m5-5 5 5M4 15v3a3 3 0 003 3h10a3 3 0 003-3v-3"/></svg>
+          <strong>Arraste seus documentos aqui</strong>
+          <span>ou <u>clique para selecionar</u> vários arquivos</span>
+          <small>Até 40 arquivos · Máx. 30 MB por arquivo · 120 MB no total</small>
+          <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md" multiple hidden>
+        </div>
+        <div id="fileList" class="files" aria-live="polite"></div>
+        <div class="settings">
+          <label for="model">Modelo Ollama</label>
+          <div class="model-line"><select id="model"></select><button id="refreshModels" type="button" title="Atualizar modelos locais">↻</button></div>
+          <div class="checkline"><label><input id="ocr" type="checkbox"> Ativar OCR local para PDFs digitalizados</label><span class="help" title="Requer Tesseract com pacote de idioma português instalado no computador">ⓘ</span></div>
+          <div id="ollamaStatus" class="status">Verificando Ollama local…</div>
+        </div>
+        <button id="startBtn" class="primary" disabled>Iniciar análise jurídica <span>→</span></button>
+        <p class="note">Nenhum documento é enviado para serviços de IA na nuvem por esta aplicação. Confira as configurações locais do Ollama.</p>
+      </div>
+      <div class="panel result-panel">
+        <div class="section-title"><div><span class="count">02</span><h2>Relatório de inteligência</h2></div><span class="muted">Com fontes auditáveis</span></div>
+        <div id="empty" class="empty">
+          <div class="rings">✧</div>
+          <h3>Pronto para analisar seus documentos</h3>
+          <p>O resultado mostrará evidências, datas, pedidos, provas, decisões, riscos e questões que precisam de revisão humana.</p>
+          <div class="features"><span>✓ Citações verificadas</span><span>✓ Cronologia</span><span>✓ Anexo completo</span><span>✓ Arquivo Word</span></div>
+        </div>
+        <div id="progressPanel" class="hidden" aria-live="polite">
+          <div class="overline">PROCESSANDO</div>
+          <h3 id="progressText">Iniciando…</h3>
+          <div class="progress-track"><div id="progressFill"></div></div>
+          <p id="progressPercent" class="muted">0%</p>
+          <p class="note">Modelos locais podem levar vários minutos por trecho. Mantenha esta aba aberta.</p>
+        </div>
+        <div id="result" class="hidden">
+          <div class="success"><span>✓</span><div><strong>Relatório gerado</strong><p>Confira os avisos e valide os trechos nos documentos de origem.</p></div></div>
+          <div class="metrics"><div><b id="numFiles">0</b><span>Arquivos</span></div><div><b id="numChunks">0</b><span>Trechos analisados</span></div><div><b id="numEvidence">0</b><span>Evidências verificadas</span></div></div>
+          <div id="warnings"></div>
+          <div id="sections"></div>
+          <div class="download"><a id="wordLink" href="#" class="primary">Baixar relatório Word ↓</a><a id="jsonLink" href="#" class="secondary">Baixar trilha de auditoria JSON</a></div>
+        </div>
+        <div id="error" class="error hidden"></div>
+      </div>
+    </section>
+    <footer>LexIA Local · Inteligência assistiva, não aconselhamento jurídico · Responsabilidade e conferência profissional obrigatórias.</footer>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

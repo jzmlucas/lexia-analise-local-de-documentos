@@ -7,7 +7,7 @@ import unicodedata
 from typing import Callable
 
 from .ingestion import ingest_file, IngestedDoc, Chunk
-from .llm import extract_chunk, report_section
+from .llm import LLMFatalError, extract_chunk, report_section
 from .prompts import SECTION_INSTRUCTIONS
 
 
@@ -37,7 +37,7 @@ def _as_block(item: dict) -> str:
     }, ensure_ascii=False)
 
 
-def _batches(items: list[dict], budget: int = 10800) -> list[str]:
+def _batches(items: list[dict], budget: int = 8000) -> list[str]:
     result, pending, size = [], [], 0
     for item in items:
         fragment = _as_block(item)
@@ -84,6 +84,8 @@ def _extract(model: str, chunks: list[Chunk], update: Callable[[str, float], Non
         update(f"Analisando trecho {n}/{len(chunks)} · {chunk.filename} · {chunk.location}", 0.08 + 0.62 * (n-1) / max(1, len(chunks)))
         try:
             extracted = extract_chunk(model, chunk)
+        except LLMFatalError:
+            raise  # Ollama fora do ar / modelo ausente: afeta todos os trechos; mostrar a causa real.
         except Exception as exc:
             failed.append(f"{chunk.id}: {type(exc).__name__} ({str(exc)[:180]})")
             continue
@@ -122,7 +124,7 @@ def process_files(model: str, uploads: list[tuple[str, bytes]], enable_ocr: bool
         raise ValueError(
             "Nenhuma evidência com citação literal verificável foi produzida. "
             "Experimente outro modelo ou um documento mais legível."
-            + (f" Trechos com erro: {len(failed)}." if failed else "")
+            + (f" Trechos com erro: {len(failed)}. Primeiro erro: {failed[0]}" if failed else "")
         )
     valid_ids = {x["evidencia_id"] for x in evidence}
     sections = []
@@ -145,6 +147,8 @@ def process_files(model: str, uploads: list[tuple[str, bytes]], enable_ocr: bool
             update(f"Redigindo: {name} ({batch_number}/{total_batches})", 0.72 + 0.25 * (batch_number-1) / max(1, total_batches))
             try:
                 result = report_section(model, name, purpose, block)
+            except LLMFatalError:
+                raise
             except Exception as exc:
                 failed.append(f"Síntese ({name}): {type(exc).__name__} ({str(exc)[:180]})")
                 continue

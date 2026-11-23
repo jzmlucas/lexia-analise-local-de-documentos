@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LexIA · Análise Jurídica Local</title>
+  <link href="/static/style.css" rel="stylesheet">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-icon">§</span><span>Lex<span class="accent">IA</span><small>LOCAL</small></span></div>
+    <div class="tag"><span class="indicator"></span>Processamento em ambiente local</div>
+  </header>
+  <main>
+    <section class="layout">
+      <div class="panel intake-panel">
+        <div class="intake-heading"><div><p class="intake-kicker">Preparar análise</p><h2>Envie os autos</h2><p>Reúna as peças de um caso para examinar fatos e evidências em conjunto.</p></div><span class="intake-mark" aria-hidden="true">§</span></div>
+        <div class="intake-step"><div class="step-head"><span class="step-number">1</span><label for="caseSelect">Escolha o caso</label></div><select id="caseSelect"><option value="">Análise avulsa</option></select><div class="case-create"><input id="caseName" type="text" placeholder="Nome de um novo caso" maxlength="150" aria-label="Nome de um novo caso"><button id="createCase" type="button">Criar caso</button></div></div>
+        <div class="intake-step"><div class="step-head"><span class="step-number">2</span><span>Adicione os documentos</span></div>
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Selecionar documentos">
+          <span class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 16V3m0 0L7 8m5-5 5 5M4 15v3a3 3 0 003 3h10a3 3 0 003-3v-3"/></svg></span>
+          <strong>Arraste os arquivos para cá</strong>
+          <span>ou <u>selecione no computador</u></span>
+          <input type="file" id="fileInput" accept=".pdf,.docx,.xlsx,.csv,.png,.jpg,.jpeg,.tif,.tiff,.txt,.md" multiple hidden>
+        </div>
+        <div class="upload-meta"><span>PDF, Word, planilhas, imagens e texto</span><span>40 arquivos · 30 MB cada</span></div>
+        <div id="fileList" class="files" aria-live="polite"></div></div>
+        <div class="intake-step"><div class="step-head"><span class="step-number">3</span><label for="model">Configure a leitura</label></div>
+        <div class="settings">
+          <div class="model-line"><select id="model"></select><button id="refreshModels" type="button" title="Atualizar modelos locais">↻</button></div>
+          <div class="checkline"><label><input id="ocr" type="checkbox"> Ler imagens e PDFs digitalizados com OCR</label><span class="help" title="Usa Tesseract local com português e inglês">ⓘ</span></div>
+          <div id="ollamaStatus" class="status">Verificando provedor de IA…</div>
+        </div></div>
+        <button id="startBtn" class="primary" disabled>Iniciar análise jurídica <span>→</span></button>
+        <p class="note">O provedor é definido no arquivo .env. Quando um serviço em nuvem é usado, trechos documentais são enviados a ele.</p>
+      </div>
+      <div class="panel result-panel">
+        <div class="section-title"><div><span class="count">02</span><h2>Relatório de inteligência</h2></div><span class="muted">Com fontes auditáveis</span></div>
+        <div id="empty" class="empty">
+          <div class="rings">✧</div>
+          <h3>Pronto para analisar seus documentos</h3>
+          <p>O resultado mostrará evidências, datas, pedidos, provas, decisões, riscos e questões que precisam de revisão humana.</p>
+          <div class="features"><span>✓ Citações verificadas</span><span>✓ Cronologia</span><span>✓ Anexo completo</span><span>✓ Arquivo Word</span></div>
+        </div>
+        <div id="progressPanel" class="hidden" aria-live="polite">
+          <div class="overline">PROCESSANDO</div>
+          <h3 id="progressText">Iniciando…</h3>
+          <div class="progress-track"><div id="progressFill"></div></div>
+          <p id="progressPercent" class="muted">0%</p>
+          <p class="note">Modelos locais podem levar vários minutos por trecho. Mantenha esta aba aberta.</p>
+        </div>
+        <div id="result" class="hidden">
+          <div class="success"><span>✓</span><div><strong>Relatório gerado</strong><p>Confira os avisos e valide os trechos nos documentos de origem.</p></div></div>
+          <div class="metrics"><div><b id="numFiles">0</b><span>Arquivos</span></div><div><b id="numChunks">0</b><span>Trechos analisados</span></div><div><b id="numEvidence">0</b><span>Evidências verificadas</span></div></div>
+          <div id="warnings"></div>
+          <div id="sections"></div>
+          <div class="download"><a id="wordLink" href="#" class="primary">Baixar relatório Word ↓</a><a id="jsonLink" href="#" class="secondary">Baixar trilha de auditoria JSON</a></div>
+        </div>
+        <div id="error" class="error hidden"></div>
+      </div>
+    </section>
+    <section class="library-panel" aria-labelledby="libraryTitle">
+      <div class="library-head"><div><p class="intake-kicker">Acervo de referência</p><h2 id="libraryTitle">Biblioteca jurídica</h2><p>Adicione materiais para consulta nas próximas análises. Eles ficam separados dos autos do caso.</p></div><button id="libraryToggle" type="button" aria-expanded="false" aria-controls="libraryBody">Adicionar documentos</button></div>
+      <div id="libraryBody" class="library-body hidden">
+        <div class="library-form">
+          <label>Categoria<select id="libraryCategory"><option value="legislacao">Legislação</option><option value="jurisprudencia">Jurisprudência</option><option value="doutrina">Doutrina</option><option value="modelos">Modelos e peças</option><option value="outros">Outras referências</option></select></label>
+          <label>Fonte oficial ou origem (opcional)<input id="librarySource" type="url" placeholder="https://..." maxlength="500"></label>
+          <label>Território (opcional)<input id="libraryTerritory" type="text" placeholder="Brasil, SP, município..." maxlength="120"></label>
+          <label>Vigência informada (opcional)<input id="libraryEffective" type="text" placeholder="Conferir na fonte oficial" maxlength="80"></label>
+          <label class="library-file-label" for="libraryFiles">Escolher documentos <span>PDF, Word, planilhas, imagens ou texto</span></label>
+          <input id="libraryFiles" type="file" accept=".pdf,.docx,.xlsx,.csv,.png,.jpg,.jpeg,.tif,.tiff,.txt,.md" multiple>
+          <button id="libraryUpload" type="button">Adicionar à biblioteca</button>
+        </div>
+        <p id="libraryMessage" role="status" aria-live="polite"></p>
+        <div class="library-search"><input id="libraryQuery" type="search" placeholder="Buscar nos documentos de referência" aria-label="Buscar na biblioteca"><button id="librarySearch" type="button">Buscar</button></div>
+        <div id="libraryResults"></div>
+        <h3>Documentos da biblioteca</h3><div id="libraryList"></div>
+        <p class="note">O texto é recuperado por termos e pode entrar como referência no relatório. Confira autoria, redação, território e vigência antes de usar.</p>
+      </div>
+    </section>
+    <footer>LexIA Local · Inteligência assistiva, não aconselhamento jurídico · Responsabilidade e conferência profissional obrigatórias.</footer>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

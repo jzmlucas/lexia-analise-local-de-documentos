@@ -1,6 +1,9 @@
 import json
 import os
 import re
+import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 import httpx
@@ -132,6 +135,32 @@ def _error_detail(response: httpx.Response) -> str:
     return str(detail).strip()[:300]
 
 
+def _retry_after_seconds(response: httpx.Response) -> int:
+    value = response.headers.get("retry-after", "").strip()
+    if value.isdigit():
+        return min(int(value), 60)
+    if value:
+        try:
+            retry_at = parsedate_to_datetime(value)
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            return max(0, min(int((retry_at - datetime.now(timezone.utc)).total_seconds()), 60))
+        except (TypeError, ValueError, OverflowError):
+            pass
+    return 2
+
+
+def _raise_cloud_error(response: httpx.Response, provider: str) -> None:
+    if response.status_code == 429:
+        wait = _retry_after_seconds(response)
+        raise LLMRateLimitError(
+            f"{provider.capitalize()} limitou as requisições (HTTP 429). "
+            f"Aguarde {wait} segundos antes de tentar novamente."
+        )
+    detail = _error_detail(response)
+    raise LLMError(f"{provider.capitalize()} retornou HTTP {response.status_code}: {detail}")
+
+
 def _post_chat(client: httpx.Client, payload: dict) -> dict:
     try:
         response = client.post(f"{OLLAMA_URL}/api/chat", json=payload)
@@ -178,23 +207,26 @@ def _cloud_request(system: str, user: str, schema: type[BaseModel], provider: st
         _inline_schema(schema.model_json_schema()), ensure_ascii=False
     )
     with httpx.Client(timeout=180, trust_env=False) as client:
-        if provider == "anthropic":
-            response = client.post(url, headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
-                json={"model": model, "max_tokens": MAX_OUTPUT_TOKENS, "system": cloud_system,
-                      "messages": [{"role": "user", "content": user}]})
-            response.raise_for_status()
-            content = "".join(x.get("text", "") for x in response.json().get("content", []))
-        else:
-            response = client.post(url, headers={"Authorization": f"Bearer {key}"},
-                json={"model": model, "temperature": 0, "messages": [{"role": "system", "content": cloud_system}, {"role": "user", "content": user}]})
-            if response.status_code == 429:
-                retry_after = response.headers.get("retry-after", "")
-                wait_hint = f" Tente novamente em {retry_after} segundos." if retry_after.isdigit() else " Tente novamente mais tarde ou configure um provedor alternativo."
-                raise LLMRateLimitError(f"{provider.capitalize()} limitou as requisições (HTTP 429).{wait_hint}")
+        headers = ({"x-api-key": key, "anthropic-version": "2023-06-01"}
+                   if provider == "anthropic" else {"Authorization": f"Bearer {key}"})
+        payload = ({"model": model, "max_tokens": MAX_OUTPUT_TOKENS, "system": cloud_system,
+                    "messages": [{"role": "user", "content": user}]}
+                   if provider == "anthropic" else
+                   {"model": model, "temperature": 0, "messages": [
+                       {"role": "system", "content": cloud_system}, {"role": "user", "content": user}]})
+        for attempt in range(2):
+            response = client.post(url, headers=headers, json=payload)
+            if response.status_code == 429 and attempt == 0:
+                wait = _retry_after_seconds(response)
+                time.sleep(wait)
+                continue
             if response.status_code >= 400:
-                detail = _error_detail(response)
-                raise LLMError(f"{provider.capitalize()} retornou HTTP {response.status_code}: {detail}")
-            content = response.json()["choices"][0]["message"]["content"]
+                _raise_cloud_error(response, provider)
+            if provider == "anthropic":
+                content = "".join(x.get("text", "") for x in response.json().get("content", []))
+            else:
+                content = response.json()["choices"][0]["message"]["content"]
+            break
     return schema.model_validate(_parse_json(content))
 
 

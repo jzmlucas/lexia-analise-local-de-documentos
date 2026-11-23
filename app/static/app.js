@@ -44,7 +44,10 @@ async function health(){
       $('model').append(opt);
     }
     $('ollamaStatus').textContent=body.provider!=='ollama'
-      ? (body.configured ? `● ${body.provider} configurado · ${body.default_model}` : `⚠ Chave de ${body.provider} ausente no servidor`)
+      ? (!body.configured ? `⚠ Chave de ${body.provider} ausente no servidor`
+        : body.fallback_provider==='ollama' && !body.fallback_available
+          ? `⚠ ${body.provider} principal configurado · Ollama de fallback indisponível`
+          : `● ${body.provider} configurado · ${body.default_model}${body.fallback_provider==='ollama'?' · fallback Ollama conectado':''}`)
       : (body.ollama ? `● Ollama conectado · ${body.models.length} modelo(s) disponível(is)` : `⚠ Ollama indisponível: ${body.error||'verifique instalação'}`);
   }catch(e){ $('ollamaStatus').textContent='⚠ Não foi possível consultar Ollama.'; }
 }
@@ -90,8 +93,27 @@ function done(data,id){
       const ref=document.createElement('small');ref.textContent=`Fontes: ${point.fontes.join(', ')} · ${point.natureza}`;
       li.append(ref);list.append(li);
     }
+    if(!section.pontos.length){
+      const li=document.createElement('li');
+      li.textContent='Nenhuma evidência verificada foi classificada para esta seção. Consulte o inventário completo abaixo.';
+      list.append(li);
+    }
     details.append(summary,list);$('sections').append(details);
   }
+  const evidenceList=$('evidenceInventoryList');
+  evidenceList.replaceChildren();
+  const evidence=data.evidencias||[];
+  $('evidenceInventorySummary').textContent=`Inventário completo · ${evidence.length} evidência(s) com citação verificada`;
+  for(const item of evidence){
+    const li=document.createElement('li');
+    li.textContent=`${item.evidencia_id} · ${item.titulo} — ${item.descricao}`;
+    const quote=document.createElement('blockquote');
+    quote.textContent=`“${item.citacao_literal}”`;
+    const source=document.createElement('small');
+    source.textContent=`Fonte: ${item.arquivo}, ${item.localizacao} · ${item.natureza} · ${item.importancia}`;
+    li.append(quote,source);evidenceList.append(li);
+  }
+  $('evidenceInventory').classList.toggle('hidden',evidence.length===0);
 }
 function liveEvent(event){
   if(event.type==='evidence' && event.evidence?.length){

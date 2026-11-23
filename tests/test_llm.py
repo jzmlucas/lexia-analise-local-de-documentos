@@ -162,10 +162,38 @@ def test_gemini_rate_limit_has_clear_error(monkeypatch):
         def __exit__(self, *args): return False
 
     monkeypatch.setattr(llm.httpx, "Client", lambda **kwargs: Client())
+    monkeypatch.setattr(llm.time, "sleep", lambda seconds: None)
     monkeypatch.setenv("LEXIA_ALLOW_CLOUD", "true")
     monkeypatch.setenv("GEMINI_API_KEY", "test")
     with pytest.raises(llm.LLMRateLimitError, match="HTTP 429.*30 segundos"):
         llm._cloud_request("system", "user", Extraction, "gemini")
+
+
+def test_cloud_rate_limit_retries_after_provider_delay(monkeypatch):
+    class Response:
+        def __init__(self, status, payload, headers=None):
+            self.status_code, self._payload = status, payload
+            self.headers, self.text = headers or {}, json.dumps(payload)
+        def json(self): return self._payload
+
+    class Client:
+        calls = 0
+        def __init__(self, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def post(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return Response(429, {"error": "quota exceeded"}, {"retry-after": "7"})
+            return Response(200, {"choices": [{"message": {"content": json.dumps({"itens": []})}}]})
+
+    waits = []
+    monkeypatch.setattr(llm.httpx, "Client", Client)
+    monkeypatch.setattr(llm.time, "sleep", waits.append)
+    monkeypatch.setenv("LEXIA_ALLOW_CLOUD", "true")
+    monkeypatch.setenv("GEMINI_API_KEY", "test")
+    assert llm._cloud_request("system", "user", Extraction, "gemini") == Extraction()
+    assert waits == [7]
 
 
 def test_gemini_rate_limit_falls_back_to_ollama(monkeypatch):

@@ -63,12 +63,14 @@ def _user_error(exc: Exception) -> str:
         return "O serviço de análise local está indisponível. Verifique se ele está iniciado e tente novamente."
     if "não encontrado no ollama" in message or "model not found" in message:
         return "O modelo de análise não está instalado. Entre em contato com o responsável pelo sistema."
-    if "nenhuma evidência" in message or "citação literal verificável" in message:
-        return "Não foi possível confirmar informações suficientes nos documentos. Verifique a qualidade dos arquivos e tente novamente."
-    if "ocr" in message or "texto legível" in message:
-        return "Não foi possível ler o conteúdo dos arquivos. Se forem digitalizados, ative a leitura de imagens e tente novamente."
     if "tempo esgotado" in message or "timeout" in message:
         return "A análise demorou mais que o esperado. Tente novamente em alguns instantes."
+    if "extração não foi concluída pelo modelo" in message or "modelo retornou json incompatível" in message or "resposta inválida" in message:
+        return "O modelo de análise não conseguiu interpretar os trechos. Verifique o modelo/provedor configurado e tente novamente."
+    if "nenhuma evidência" in message or "citação literal verificável" in message:
+        return "O arquivo foi lido, mas o modelo não produziu citações que pudessem ser confirmadas no texto. Tente novamente ou selecione outro modelo."
+    if "ocr" in message or "texto legível" in message:
+        return "Não foi possível ler o conteúdo dos arquivos. Se forem digitalizados, ative a leitura de imagens e tente novamente."
     return "Não foi possível concluir esta operação. Tente novamente; se o problema persistir, contate o responsável pelo sistema."
 
 
@@ -217,8 +219,20 @@ async def health():
     if PRIMARY_PROVIDER != "ollama":
         key_name = {"gemini": "GEMINI_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
                     "openai": "OPENAI_API_KEY"}[PRIMARY_PROVIDER]
-        return {"provider": PRIMARY_PROVIDER, "configured": bool(os.getenv(key_name)),
-                "models": [DEFAULT_MODEL], "default_model": DEFAULT_MODEL}
+        configured = bool(os.getenv(key_name))
+        ollama_available = False
+        ollama_models = []
+        if os.getenv("LEXIA_FALLBACK_PROVIDER", "").lower() == "ollama":
+            try:
+                ollama_models = await asyncio.to_thread(tags)
+                ollama_available = True
+            except Exception:
+                pass
+        return {"provider": PRIMARY_PROVIDER, "configured": configured,
+                "models": [DEFAULT_MODEL], "default_model": DEFAULT_MODEL,
+                "fallback_provider": os.getenv("LEXIA_FALLBACK_PROVIDER", ""),
+                "fallback_available": ollama_available,
+                "fallback_models": ollama_models}
     try:
         models = await asyncio.to_thread(tags)
         return {"provider": "ollama", "ollama": True, "models": models, "default_model": DEFAULT_MODEL}
@@ -342,8 +356,10 @@ async def job_status(jid: str):
             "evidencias_verificadas": data["evidencias_verificadas"],
             "afirmacoes_descartadas": data["afirmacoes_descartadas"],
             "avisos": data["avisos"],
-            "falhas": ([f"Não foi possível analisar {len(data['falhas'])} trecho(s). Verifique os arquivos e tente novamente mais tarde."] if data["falhas"] else []),
+            "falhas": ([f"Não foi possível analisar {sum(not item.startswith('Síntese (') for item in data['falhas'])} trecho(s). Confira a cobertura e as falhas técnicas no relatório."]
+                        if any(not item.startswith("Síntese (") for item in data["falhas"]) else []),
             "secoes": data["secoes"],
+            "evidencias": data.get("evidencias", []),
         }
     return payload
 

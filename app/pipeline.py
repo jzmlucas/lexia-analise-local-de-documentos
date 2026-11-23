@@ -13,8 +13,11 @@ from . import library
 
 
 def _normalize(s: str) -> str:
-    s = unicodedata.normalize("NFKC", s).replace("\u00ad", "")
-    return re.sub(r"\s+", " ", s).strip().casefold()
+    s = unicodedata.normalize("NFKC", s).replace("\u00ad", "").casefold()
+    # DOCX/PDF e modelos podem variar aspas, travessões e pontuação sem alterar
+    # as palavras citadas. Removê-los deixa a checagem robusta sem aceitar
+    # paráfrases: todas as palavras da citação ainda precisam aparecer em ordem.
+    return "".join(char for char in s if char.isalnum())
 
 
 def quote_is_in_chunk(quote: str, chunk_text: str) -> bool:
@@ -78,6 +81,21 @@ def _chosen(name: str, evidence: list[dict]) -> tuple[list[dict], bool]:
     return (selected[:cap] if cap else selected), capped
 
 
+def _evidence_points(items: list[dict]) -> list[dict]:
+    """Deterministic synthesis fallback that preserves every verified source."""
+    points = []
+    for item in items:
+        description = item["descricao"].strip()
+        text = f"{item['titulo']}: {description}" if description else item["titulo"]
+        points.append({
+            "texto": text[:1500],
+            "fontes": [item["evidencia_id"]],
+            "natureza": "alegacao" if item["natureza"] == "alegado" else "fato_documentado",
+            "prioridade": item["importancia"],
+        })
+    return points
+
+
 def _extract(model: str, chunks: list[Chunk], update: Callable[[str, float], None]):
     evidence, rejected, failed = [], 0, []
     complete = 0
@@ -131,10 +149,15 @@ def process_files(model: str, uploads: list[tuple[str, bytes]], enable_ocr: bool
     evidence, rejected, failed, complete = _extract(model, chunks, update)
     failed = ingest_failures + failed
     if not evidence:
+        if failed:
+            raise ValueError(
+                "A extração não foi concluída pelo modelo em nenhum trecho. "
+                "Confira o provedor/modelo configurado e tente novamente. "
+                f"Falhas: {len(failed)}. Primeiro erro: {failed[0]}"
+            )
         raise ValueError(
-            "Nenhuma evidência com citação literal verificável foi produzida. "
-            "Experimente outro modelo ou um documento mais legível."
-            + (f" Trechos com erro: {len(failed)}. Primeiro erro: {failed[0]}" if failed else "")
+            "O modelo não retornou citações literais verificáveis para o conteúdo extraído. "
+            "O arquivo foi lido, mas a resposta do modelo não pôde ser confirmada; tente outro modelo."
         )
     try:
         vectors = embed_texts([item["titulo"] + " " + item["descricao"] for item in evidence])
@@ -175,6 +198,7 @@ def process_files(model: str, uploads: list[tuple[str, bytes]], enable_ocr: bool
     memory = [x[:1500] for x in (memory or []) if x.strip()][:12]
     memory_block = "\n".join(f"- {item}" for item in memory)
     sections = []
+    recoveries = []
     warnings = [f"{doc.filename}: {warn}" for doc in docs for warn in doc.warnings]
     if references:
         warnings.append("Referências da biblioteca foram recuperadas por termos; conteúdo, autoria, território e vigência exigem conferência humana.")
@@ -205,31 +229,47 @@ def process_files(model: str, uploads: list[tuple[str, bytes]], enable_ocr: bool
                 block += "\nMEMÓRIA DO CASO (contexto fornecido anteriormente; não constitui prova dos documentos atuais):\n" + memory_block
             batch_number += 1
             update(f"Redigindo: {name} ({batch_number}/{total_batches})", 0.72 + 0.25 * (batch_number-1) / max(1, total_batches))
-            try:
-                result = report_section(model, name, purpose, block)
-            except LLMFatalError:
-                raise
-            except Exception as exc:
-                failed.append(f"Síntese ({name}): {type(exc).__name__} ({str(exc)[:180]})")
-                continue
-            for pt in result.pontos:
-                clean_refs = list(dict.fromkeys(x for x in pt.fontes if x in (valid_ids | reference_ids) and x in batch_ids))
-                if not clean_refs:
-                    rejected += 1
-                    continue
-                point = pt.model_dump()
-                point["fontes"] = clean_refs
-                if not any(x in valid_ids for x in clean_refs):
-                    point["natureza"] = "hipotese_para_revisao"
-                points.append(point)
-            gaps.extend(result.lacunas)
+            result = None
+            last_error = None
+            for attempt in range(2):
+                try:
+                    result = report_section(model, name, purpose, block)
+                    break
+                except LLMFatalError:
+                    raise
+                except Exception as exc:
+                    last_error = exc
+                    if attempt == 0:
+                        update(f"Repetindo síntese: {name}", 0.72 + 0.25 * (batch_number-1) / max(1, total_batches))
+            if result is None:
+                # Synthesis is editorial. Preserve a useful, source-linked section
+                # from the already verified evidence instead of losing the analysis.
+                recoveries.append(f"Síntese ({name}) recuperada pelo inventário: {type(last_error).__name__} ({str(last_error)[:180]})")
+                points.extend(_evidence_points(picked))
+            else:
+                for pt in result.pontos:
+                    clean_refs = list(dict.fromkeys(x for x in pt.fontes if x in (valid_ids | reference_ids) and x in batch_ids))
+                    if not clean_refs:
+                        rejected += 1
+                        continue
+                    point = pt.model_dump()
+                    point["fontes"] = clean_refs
+                    if not any(x in valid_ids for x in clean_refs):
+                        point["natureza"] = "hipotese_para_revisao"
+                    points.append(point)
+                gaps.extend(result.lacunas)
         if capped:
             gaps.append("Seção transversal elaborada com até 65 evidências prioritárias; consultar inventário integral para os demais itens.")
         sections.append({"nome": name, "pontos": points, "lacunas": list(dict.fromkeys(gaps))})
         update(f"Seção pronta: {name}", 0.72 + 0.25 * batch_number / max(1, total_batches), {"type": "section", "section": sections[-1]})
+    extraction_failures = [item for item in failed if not item.startswith("Síntese (")]
+    if extraction_failures:
+        warnings.append("Ocorreram falhas na extração de trechos. Relatório PARCIAL: não presuma cobertura integral; consulte as falhas no inventário.")
+    if recoveries:
+        warnings.append("Uma ou mais seções foram compostas diretamente do inventário de evidências verificadas após falha de síntese.")
+        warnings.append(f"{len(recoveries)} seção(ões) recuperada(s) do inventário; detalhes registrados na auditoria.")
     if failed:
-        warnings.append("Ocorreram falhas de leitura/síntese. Relatório PARCIAL: consultar os erros no inventário.")
-        warnings.append(f"Detalhes técnicos das {len(failed)} falha(s) foram registrados no inventário de auditoria local.")
+        warnings.append(f"Detalhes técnicos das {len(failed)} falha(s) e recuperações foram registrados no inventário de auditoria local.")
     if not any(section["pontos"] for section in sections):
         warnings.append("Síntese indisponível: inventário de evidências verificadas continua disponível.")
     update("Preparando relatório Word", 0.98)
@@ -244,6 +284,7 @@ def process_files(model: str, uploads: list[tuple[str, bytes]], enable_ocr: bool
         "tipos": dict(Counter(x["categoria"] for x in evidence)),
         "avisos": warnings,
         "falhas": failed,
+        "recuperacoes": recoveries,
         "secoes": sections,
         "evidencias": evidence,
         "referencias": references,
